@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import pandas as pd
-from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence, pad_packed_sequence
 class BiRNN(nn.Module):
     def __init__(self, num_layers, num_hidden, num_classes, keep_prob, use_embedding = True, sequence_length = 66, dict_size = 32):
         '''
@@ -28,20 +28,27 @@ class BiRNN(nn.Module):
                            dropout = keep_prob,
                            bidirectional = True
                            )
+
         self.fc1 = nn.Linear(2 * num_hidden + 1, num_hidden)
         self.fc2 = nn.Linear(num_hidden, num_classes)
-    def forward(self, x, meta_data):
 
-        seq_len = x['lens']
+    def forward(self, x, meta_data, seq_len):
         x = pad_sequence(x, batch_first = True, padding_value = 0.0)
-        x = pack_padded_sequence(x, seq_len, batch_first = True)
 
         if self.use_embedding:
             x = self.emb(x)
 
-        out, (_, _) = self.rnn(x, (0, 0))
+        x = pack_padded_sequence(x, seq_len, batch_first = True, enforce_sorted = False)
 
-        out = torch.cat(tensors = [out, meta_data], dim = 1)
+        out, (_, _) = self.rnn(x)
+
+        out, _ = pad_packed_sequence(out, batch_first = True)
+
+        meta_data = meta_data.unsqueeze(1).expand(-1, out.size(1), 1)
+
+        out = torch.cat((out, meta_data), dim = 2)
+
+        out = out[:, -1, :]
 
         out = F.relu(self.fc1(out))
 
